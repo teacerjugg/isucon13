@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/labstack/echo/v4"
+	"golang.org/x/sync/singleflight"
 )
 
 type LivestreamStatistics struct {
@@ -43,6 +45,13 @@ type UserStatistics struct {
 	FavoriteEmoji     string `json:"favorite_emoji"`
 }
 
+type UserScore struct {
+	ID            int64  `db:"id"`
+	Username      string `db:"username"`
+	ReactionCount int64  `db:"reaction_count"`
+	TotalTips     int64  `db:"total_tips"`
+}
+
 type UserRankingEntry struct {
 	Username string
 	Score    int64
@@ -57,6 +66,61 @@ func (r UserRanking) Less(i, j int) bool {
 	} else {
 		return r[i].Score < r[j].Score
 	}
+}
+
+var userRankingSingleflight singleflight.Group
+
+func getUserRanking() (UserRanking, error) {
+	resultI, err, _ := userRankingSingleflight.Do("user_ranking", func() (interface{}, error) {
+		tx, err := dbConn.BeginTxx(context.Background(), nil)
+		if err != nil {
+			return nil, err
+		}
+		defer tx.Rollback()
+
+		var users []*UserModel
+		if err := tx.SelectContext(context.Background(), &users, "SELECT id, name FROM users"); err != nil {
+			return nil, err
+		}
+
+		var ranking UserRanking
+		query := `
+			SELECT
+				u.id,
+				IFNULL(SUM(r.id), 0) AS reaction_count,
+				IFNULL(SUM(lc.tip), 0) AS total_tips
+			FROM
+				users u
+			LEFT JOIN
+				livestreams l ON l.user_id = u.id
+			LEFT JOIN
+				reactions r ON r.livestream_id = l.id
+			LEFT JOIN
+				livecomments lc ON lc.livestream_id = l.id
+			GROUP BY u.id
+		`
+
+		var userScores []UserScore
+		if err = tx.SelectContext(context.Background(), &userScores, query); err != nil {
+			return nil, err
+		}
+
+		for _, userScore := range userScores {
+			score := userScore.ReactionCount + userScore.TotalTips
+			ranking = append(ranking, UserRankingEntry{
+				Username: userScore.Username,
+				Score:    score,
+			})
+		}
+		sort.Sort(ranking)
+
+		return ranking, nil
+	})
+
+	if err != nil {
+		return UserRanking{}, err
+	}
+	return resultI.(UserRanking), nil
 }
 
 func getUserStatisticsHandler(c echo.Context) error {
@@ -87,45 +151,10 @@ func getUserStatisticsHandler(c echo.Context) error {
 	}
 
 	// ランク算出
-	var ranking UserRanking
-	query := `
-	SELECT 
-	    u.id,
-	    u.name AS username,
-	    IFNULL(SUM(r.id), 0) AS reaction_count,
-	    IFNULL(SUM(lc.tip), 0) AS total_tips
-	FROM 
-	    users u
-	LEFT JOIN 
-	    livestreams l ON l.user_id = u.id
-	LEFT JOIN 
-	    reactions r ON r.livestream_id = l.id
-	LEFT JOIN 
-	    livecomments lc ON lc.livestream_id = l.id
-	GROUP BY 
-	    u.id, u.name
-	`
-
-	type UserScore struct {
-	    ID            int64  `db:"id"`
-	    Username      string `db:"username"`
-	    ReactionCount int64  `db:"reaction_count"`
-	    TotalTips     int64  `db:"total_tips"`
+	ranking, err := getUserRanking()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user ranking: "+err.Error())
 	}
-
-	var userScores []UserScore
-	if err = tx.SelectContext(ctx, &userScores, query); err != nil {
-	    return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user scores: "+err.Error())
-	}
-
-	for _, userScore := range userScores {
-	    score := userScore.ReactionCount + userScore.TotalTips
-	    ranking = append(ranking, UserRankingEntry{
-	        Username: userScore.Username,
-	        Score:    score,
-	    })
-	}
-	sort.Sort(ranking)
 
 	var rank int64 = 1
 	for i := len(ranking) - 1; i >= 0; i-- {
@@ -138,8 +167,8 @@ func getUserStatisticsHandler(c echo.Context) error {
 
 	// リアクション数
 	var totalReactions int64
-	query = `SELECT COUNT(*) FROM users u 
-    INNER JOIN livestreams l ON l.user_id = u.id 
+	query := `SELECT COUNT(*) FROM users u
+    INNER JOIN livestreams l ON l.user_id = u.id
     INNER JOIN reactions r ON r.livestream_id = l.id
     WHERE u.name = ?
 	`
@@ -154,6 +183,20 @@ func getUserStatisticsHandler(c echo.Context) error {
 	if err := tx.SelectContext(ctx, &livestreams, "SELECT * FROM livestreams WHERE user_id = ?", user.ID); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livestreams: "+err.Error())
 	}
+
+	// TODO
+	// var livecomments struct {
+	// 	Tips     int64 `db:"tips"`
+	// 	Comments int64 `db:"comments"`
+	// }
+
+	// query = `
+	// 	SELECT IFNULL(SUM(tip), 0) AS tips, COUNT(*) AS comments
+	// 	FROM livecomments WHERE livestream_id IN (SELECT id FROM livestreams WHERE user_id = ?)
+	// `
+	// if err := tx.GetContext(ctx, &livecomments, query, user.ID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	// 	return echo.NewHTTPError(http.StatusInternalServerError, "failed to get livecomments: "+err.Error())
+	// }
 
 	for _, livestream := range livestreams {
 		var livecomments []*LivecommentModel
@@ -242,28 +285,28 @@ func getLivestreamStatisticsHandler(c echo.Context) error {
 	reactionCounts := make(map[int64]int64)
 	rows, err := tx.QueryContext(ctx, "SELECT livestream_id, COUNT(reactions.id) AS reaction_count FROM reactions GROUP BY livestream_id")
 	if err != nil {
-	    return echo.NewHTTPError(http.StatusInternalServerError, "failed to fetch reaction counts: "+err.Error())
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fetch reaction counts: "+err.Error())
 	}
 	defer rows.Close()
 	for rows.Next() {
-	    var livestreamID, reactionCount int64
-	    if err := rows.Scan(&livestreamID, &reactionCount); err != nil {
-	        return echo.NewHTTPError(http.StatusInternalServerError, "failed to scan reaction count: "+err.Error())
-	    }
-	    reactionCounts[livestreamID] = reactionCount
+		var livestreamID, reactionCount int64
+		if err := rows.Scan(&livestreamID, &reactionCount); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to scan reaction count: "+err.Error())
+		}
+		reactionCounts[livestreamID] = reactionCount
 	}
 	tipSums := make(map[int64]int64)
 	rows, err = tx.QueryContext(ctx, "SELECT livestream_id, IFNULL(SUM(livecomments.tip), 0) FROM livecomments group by livestream_id")
 	if err != nil {
-	    return echo.NewHTTPError(http.StatusInternalServerError, "failed to fetch reaction counts: "+err.Error())
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to fetch reaction counts: "+err.Error())
 	}
 	defer rows.Close()
 	for rows.Next() {
-	    var livestreamID, tipSum int64
-	    if err := rows.Scan(&livestreamID, &tipSum); err != nil {
-	        return echo.NewHTTPError(http.StatusInternalServerError, "failed to scan reaction count: "+err.Error())
-	    }
-	    tipSums[livestreamID] = tipSum
+		var livestreamID, tipSum int64
+		if err := rows.Scan(&livestreamID, &tipSum); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "failed to scan reaction count: "+err.Error())
+		}
+		tipSums[livestreamID] = tipSum
 	}
 	for _, livestream := range livestreams {
 		reactions := reactionCounts[livestream.ID]
