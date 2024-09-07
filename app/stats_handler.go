@@ -87,6 +87,7 @@ func getUserRanking() (UserRanking, error) {
 		query := `
 			SELECT
 				u.id,
+				u.name AS username,
 				IFNULL(SUM(r.id), 0) AS reaction_count,
 				IFNULL(SUM(lc.tip), 0) AS total_tips
 			FROM
