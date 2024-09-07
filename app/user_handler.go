@@ -111,8 +111,11 @@ func getIconHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user ID: "+err.Error())
 	}
 
-	var image []byte
-	if err := tx.GetContext(ctx, &image, "SELECT image FROM icons WHERE user_id = ?", userID); err != nil {
+	var imageWithHash struct {
+		Image []byte `db:"image"`
+		Hash  string `db:"icon_hash"`
+	}
+	if err := tx.GetContext(ctx, &imageWithHash, "SELECT image, icon_hash FROM icons WHERE user_id = ?", userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return c.File(fallbackImage)
 		} else {
@@ -120,16 +123,12 @@ func getIconHandler(c echo.Context) error {
 		}
 	}
 
-	hasher := sha256.New()
-	hasher.Write(image)
-	iconHash := hex.EncodeToString(hasher.Sum(nil))
-
 	clientIconHash := c.Request().Header.Get("If-None-Match")
-	if clientIconHash == iconHash {
+	if clientIconHash == imageWithHash.Hash {
 		return c.NoContent(http.StatusNotModified) // 304
 	}
 
-	return c.Blob(http.StatusOK, "image/jpeg", image)
+	return c.Blob(http.StatusOK, "image/jpeg", imageWithHash.Image)
 }
 
 func postIconHandler(c echo.Context) error {
