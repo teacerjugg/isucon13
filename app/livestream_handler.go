@@ -62,10 +62,9 @@ type LivestreamTagModel struct {
 	TagID        int64 `db:"tag_id" json:"tag_id"`
 }
 
-var livestreamTagsCache = struct {
-	sync.RWMutex
-	m map[int64][]Tag
-}{m: make(map[int64][]Tag)}
+var (
+	livestreamTagsCache = sync.Map{}
+)
 
 type ReservationSlotModel struct {
 	ID      int64 `db:"id" json:"id"`
@@ -164,6 +163,8 @@ func reserveLivestreamHandler(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusInternalServerError, "failed to insert livestream tag: "+err.Error())
 		}
 	}
+
+	livestreamTagsCache.Delete(livestreamID)
 
 	livestream, err := fillLivestreamResponse(ctx, tx, *livestreamModel)
 	if err != nil {
@@ -493,12 +494,9 @@ func getLivecommentReportsHandler(c echo.Context) error {
 
 func getLivestreamTags(ctx context.Context, tx *sqlx.Tx, livestreamID int64) ([]Tag, error) {
 	// まずキャッシュをチェック
-	livestreamTagsCache.RLock()
-	if livestreamTags, ok := livestreamTagsCache.m[livestreamID]; ok {
-		livestreamTagsCache.RUnlock()
-		return livestreamTags, nil
+	if livestreamTags, ok := livestreamTagsCache.Load(livestreamID); ok {
+		return livestreamTags.([]Tag), nil
 	}
-	livestreamTagsCache.RUnlock()
 
 	// キャッシュになければDBから取得
 	var livestreamTagModels []*LivestreamTagModel
@@ -520,10 +518,7 @@ func getLivestreamTags(ctx context.Context, tx *sqlx.Tx, livestreamID int64) ([]
 		}
 	}
 
-	// 取得したテーマをキャッシュに保存
-	livestreamTagsCache.Lock()
-	livestreamTagsCache.m[livestreamID] = livestreamTags
-	livestreamTagsCache.Unlock()
+	livestreamTagsCache.Store(livestreamID, livestreamTags)
 
 	return livestreamTags, nil
 }

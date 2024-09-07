@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"sync"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
@@ -144,7 +145,7 @@ func initializeHandler(c echo.Context) error {
 	}()
 
 	themeCache.m = make(map[int64]ThemeModel)
-	livestreamTagsCache.m = make(map[int64][]Tag)
+	livestreamTagsCache = sync.Map{}
 	userCache.m = make(map[int64]UserModel)
 
 	ctx := c.Request().Context()
