@@ -181,6 +181,7 @@ func postIconHandler(c echo.Context) error {
 	}
 
 	userCache.Delete(userID)
+	userFillCache.Delete(userID)
 
 	return c.JSON(http.StatusCreated, &PostIconResponse{
 		ID: iconID,
@@ -281,6 +282,7 @@ func registerHandler(c echo.Context) error {
 	}
 
 	userCache.Delete(userID)
+	userFillCache.Delete(userID)
 
 	// if out, err := exec.Command("pdnsutil", "add-record", "u.isucon.local", req.Name, "A", "0", powerDNSSubdomainAddress).CombinedOutput(); err != nil {
 	// 	return echo.NewHTTPError(http.StatusInternalServerError, string(out)+": "+err.Error())
@@ -444,6 +446,7 @@ var themeCache = struct {
 }{m: make(map[int64]ThemeModel)}
 
 var userCache = sync.Map{}
+var userFillCache = sync.Map{}
 
 // GetUserTheme はユーザーのテーマを取得します。キャッシュがあればそれを返し、なければDBから取得してキャッシュします
 func getUserTheme(ctx context.Context, tx *sqlx.Tx, userID int64) (ThemeModel, error) {
@@ -481,14 +484,13 @@ func getUser(ctx context.Context, tx *sqlx.Tx, userID int64) (UserModel, error) 
 		return UserModel{}, err
 	}
 
-	// 取得したテーマをキャッシュに保存
 	userCache.Store(userID, user)
 
 	return user, nil
 }
 
 func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (User, error) {
-	user, ok := userCache.Load(userModel.ID)
+	user, ok := userFillCache.Load(userModel.ID)
 	if ok {
 		return user.(User), nil
 	}
@@ -522,6 +524,8 @@ func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (Us
 		},
 		IconHash: iconHash,
 	}
+
+	userFillCache.Store(userModel.ID, user)
 
 	return user.(User), nil
 }
