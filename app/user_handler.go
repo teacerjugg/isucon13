@@ -180,6 +180,8 @@ func postIconHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to redis set: "+err.Error())
 	}
 
+	userCache.Delete(userID)
+
 	return c.JSON(http.StatusCreated, &PostIconResponse{
 		ID: iconID,
 	})
@@ -277,6 +279,8 @@ func registerHandler(c echo.Context) error {
 	if _, err := tx.NamedExecContext(ctx, "INSERT INTO themes (user_id, dark_mode) VALUES(:user_id, :dark_mode)", themeModel); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to insert user theme: "+err.Error())
 	}
+
+	userCache.Delete(userID)
 
 	// if out, err := exec.Command("pdnsutil", "add-record", "u.isucon.local", req.Name, "A", "0", powerDNSSubdomainAddress).CombinedOutput(); err != nil {
 	// 	return echo.NewHTTPError(http.StatusInternalServerError, string(out)+": "+err.Error())
@@ -439,10 +443,7 @@ var themeCache = struct {
 	m map[int64]ThemeModel
 }{m: make(map[int64]ThemeModel)}
 
-var userCache = struct {
-	sync.RWMutex
-	m map[int64]UserModel
-}{m: make(map[int64]UserModel)}
+var userCache = sync.Map{}
 
 // GetUserTheme はユーザーのテーマを取得します。キャッシュがあればそれを返し、なければDBから取得してキャッシュします
 func getUserTheme(ctx context.Context, tx *sqlx.Tx, userID int64) (ThemeModel, error) {
@@ -470,12 +471,9 @@ func getUserTheme(ctx context.Context, tx *sqlx.Tx, userID int64) (ThemeModel, e
 
 func getUser(ctx context.Context, tx *sqlx.Tx, userID int64) (UserModel, error) {
 	// まずキャッシュをチェック
-	userCache.RLock()
-	if user, ok := userCache.m[userID]; ok {
-		userCache.RUnlock()
-		return user, nil
+	if user, ok := userCache.Load(userID); ok {
+		return user.(UserModel), nil
 	}
-	userCache.RUnlock()
 
 	// キャッシュになければDBから取得
 	var user UserModel
@@ -484,14 +482,17 @@ func getUser(ctx context.Context, tx *sqlx.Tx, userID int64) (UserModel, error) 
 	}
 
 	// 取得したテーマをキャッシュに保存
-	userCache.Lock()
-	userCache.m[userID] = user
-	userCache.Unlock()
+	userCache.Store(userID, user)
 
 	return user, nil
 }
 
 func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (User, error) {
+	user, ok := userCache.Load(userModel.ID)
+	if ok {
+		return user.(User), nil
+	}
+
 	themeModel, err := getUserTheme(ctx, tx, userModel.ID)
 	if err != nil {
 		return User{}, err
@@ -510,7 +511,7 @@ func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (Us
 		}
 	}
 
-	user := User{
+	user = User{
 		ID:          userModel.ID,
 		Name:        userModel.Name,
 		DisplayName: userModel.DisplayName,
@@ -522,5 +523,5 @@ func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (Us
 		IconHash: iconHash,
 	}
 
-	return user, nil
+	return user.(User), nil
 }

@@ -146,7 +146,7 @@ func initializeHandler(c echo.Context) error {
 
 	themeCache.m = make(map[int64]ThemeModel)
 	livestreamTagsCache = sync.Map{}
-	userCache.m = make(map[int64]UserModel)
+	userCache = sync.Map{}
 
 	ctx := c.Request().Context()
 	err := redisConn.FlushAll(ctx).Err()
