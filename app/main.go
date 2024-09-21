@@ -169,7 +169,7 @@ func initializeHandler(c echo.Context) error {
 func main() {
 	e := echo.New()
 	e.Debug = false
-	e.Logger.SetLevel(echolog.DEBUG)
+	e.Logger.SetLevel(echolog.INFO)
 	e.Use(middleware.Logger())
 	cookieStore := sessions.NewCookieStore(secret)
 	cookieStore.Options.Domain = "*.u.isucon.local"
