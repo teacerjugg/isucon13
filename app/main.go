@@ -22,7 +22,9 @@ import (
 	"github.com/labstack/echo-contrib/session"
 	echolog "github.com/labstack/gommon/log"
 	ddEcho "gopkg.in/DataDog/dd-trace-go.v1/contrib/labstack/echo.v4"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/profiler"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+	"gopkg.in/DataDog/dd-trace-go.v1/profiler"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -167,6 +169,19 @@ func main() {
 		tracer.WithEnv("isucon13"),
 	)
 	defer tracer.Stop()
+
+	err := profiler.Start(
+		profiler.WithService("isucon13")
+		profile.WithEnv("isucon13")
+		profiler.WithProfileTypes(
+			profiler.CPUProfile,
+			profiler.HeapProfile,
+		)
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer profiler.Stop()
 
 	e := echo.New()
 	e.Debug = true
