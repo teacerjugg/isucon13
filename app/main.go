@@ -155,8 +155,8 @@ func initializeHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to initialize redis: "+err.Error())
 	}
 
-	// "../../img/icon" 以下のファイルを全て削除
-	if err := exec.Command("rm", "-rf", "../../img/icon/*").Run(); err != nil {
+	// "../img/icon" 以下のファイルを全て削除
+	if err := exec.Command("rm", "-rf", "../img/icon/*").Run(); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to remove icon files: "+err.Error())
 	}
 

@@ -132,7 +132,7 @@ func getIconHandler(c echo.Context) error {
 }
 
 func getIconFilePath(userID int64) string {
-	return "../../img/icon/" + strconv.FormatInt(userID, 10) + ".jpg"
+	return "../img/icon/" + strconv.FormatInt(userID, 10) + ".jpg"
 }
 
 func postIconHandler(c echo.Context) error {
