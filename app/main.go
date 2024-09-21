@@ -22,6 +22,7 @@ import (
 	"github.com/labstack/echo-contrib/session"
 	echolog "github.com/labstack/gommon/log"
 	ddEcho "gopkg.in/DataDog/dd-trace-go.v1/contrib/labstack/echo.v4"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -161,6 +162,12 @@ func initializeHandler(c echo.Context) error {
 }
 
 func main() {
+	tracer.Start(
+		tracer.WithService("isucon13"),
+		tracer.WithEnv("isucon13"),
+	)
+	defer tracer.Stop()
+
 	e := echo.New()
 	e.Debug = true
 	e.Logger.SetLevel(echolog.DEBUG)
