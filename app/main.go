@@ -175,6 +175,10 @@ func main() {
 		profiler.WithProfileTypes(
 			profiler.CPUProfile,
 			profiler.HeapProfile,
+			profiler.MutexProfile,
+			profiler.GoroutineProfile,
+			profiler.MetricsProfile,
+			profiler.BlockProfile,
 		),
 	)
 	if err != nil {
