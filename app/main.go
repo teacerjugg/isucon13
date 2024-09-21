@@ -21,6 +21,7 @@ import (
 	echoInt "github.com/kaz/pprotein/integration/echov4"
 	"github.com/labstack/echo-contrib/session"
 	echolog "github.com/labstack/gommon/log"
+	ddEcho "gopkg.in/DataDog/dd-trace-go.v1/contrib/labstack/echo.v4"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -164,6 +165,7 @@ func main() {
 	e.Debug = true
 	e.Logger.SetLevel(echolog.DEBUG)
 	e.Use(middleware.Logger())
+	e.Use(ddEcho.Middleware(ddEcho.WithServiceName("isucon13")))
 	cookieStore := sessions.NewCookieStore(secret)
 	cookieStore.Options.Domain = "*.u.isucon.local"
 	e.Use(session.Middleware(cookieStore))
