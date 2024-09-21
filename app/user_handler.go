@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"sync"
 	"time"
 
@@ -111,11 +112,10 @@ func getIconHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user ID: "+err.Error())
 	}
 
-	var imageWithHash struct {
-		Image []byte `db:"image"`
-		Hash  string `db:"icon_hash"`
+	var iconHash struct {
+		Hash string `db:"icon_hash"`
 	}
-	if err := tx.GetContext(ctx, &imageWithHash, "SELECT image, icon_hash FROM icons WHERE user_id = ?", userID); err != nil {
+	if err := tx.GetContext(ctx, &iconHash, "SELECT icon_hash FROM icons WHERE user_id = ?", userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return c.File(fallbackImage)
 		} else {
@@ -124,11 +124,15 @@ func getIconHandler(c echo.Context) error {
 	}
 
 	clientIconHash := c.Request().Header.Get("If-None-Match")
-	if clientIconHash == imageWithHash.Hash {
+	if clientIconHash == iconHash.Hash {
 		return c.NoContent(http.StatusNotModified) // 304
 	}
 
-	return c.Blob(http.StatusOK, "image/jpeg", imageWithHash.Image)
+	return c.File(getIconFilePath(userID))
+}
+
+func getIconFilePath(userID int64) string {
+	return "../../img/icon/" + strconv.FormatInt(userID, 10) + ".jpg"
 }
 
 func postIconHandler(c echo.Context) error {
@@ -161,9 +165,15 @@ func postIconHandler(c echo.Context) error {
 
 	iconHash := sha256.Sum256(req.Image)
 	hashString := hex.EncodeToString(iconHash[:])
-	rs, err := tx.ExecContext(ctx, "INSERT INTO icons (user_id, image, icon_hash) VALUES (?, ?, ?)", userID, req.Image, hashString)
+	rs, err := tx.ExecContext(ctx, "INSERT INTO icons (user_id, icon_hash) VALUES (?, ?)", userID, hashString)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to insert new user icon: "+err.Error())
+	}
+
+	// icon をファイルに保存
+	iconFilePath := getIconFilePath(userID)
+	if err := os.WriteFile(iconFilePath, req.Image, 0666); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to save icon file: "+err.Error())
 	}
 
 	iconID, err := rs.LastInsertId()
