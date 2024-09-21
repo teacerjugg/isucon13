@@ -170,12 +170,12 @@ func main() {
 	defer tracer.Stop()
 
 	err := profiler.Start(
-		profiler.WithService("isucon13")
-		profile.WithEnv("isucon13")
+		profiler.WithService("isucon13"),
+		profiler.WithEnv("isucon13"),
 		profiler.WithProfileTypes(
 			profiler.CPUProfile,
 			profiler.HeapProfile,
-		)
+		),
 	)
 	if err != nil {
 		log.Fatal(err)
