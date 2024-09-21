@@ -115,11 +115,10 @@ func connectRedis(logger echo.Logger) (*redis.Client, error) {
 		redisAddrEnvKey = "ISUCON13_REDIS_DIALCONFIG_ADDRESS"
 	)
 
-	redisAddr := "127.0.0.1:6379"
-
-	// if v, ok := os.LookupEnv(redisAddrEnvKey); ok {
-	// 	redisAddr = v
-	// }
+	var redisAddr string
+	if v, ok := os.LookupEnv(redisAddrEnvKey); ok {
+		redisAddr = v
+	}
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     redisAddr,
