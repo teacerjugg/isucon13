@@ -16,12 +16,11 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/gorilla/sessions"
 	echoInt "github.com/kaz/pprotein/integration/echov4"
 	"github.com/labstack/echo-contrib/session"
-	echolog "github.com/labstack/gommon/log"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -144,20 +143,30 @@ func initializeHandler(c echo.Context) error {
 		}
 	}()
 
-	themeCache.m = make(map[int64]ThemeModel)
-	livestreamTagsCache = sync.Map{}
-	userCache = sync.Map{}
-	userFillCache = sync.Map{}
+	eg := errgroup.Group{}
+	eg.Go(func() error {
+		if _, err := http.Post("http://10.0.14.22:8080/api/initialize/slave", "application/json", nil); err != nil {
+			return err
+		}
+		return nil
+	})
+	// eg.Go(func() error {
+	// 	if _, err := http.Post("http://10.0.37.26:8080/api/initialize/slave", "application/json", nil); err != nil {
+	// 		return err
+	// 	}
+	// 	return nil
+	// })
+	eg.Go(func() error {
+		if _, err := http.Post("http://10.0.3.59:8080/api/initialize/slave", "application/json", nil); err != nil {
+			return err
+		}
+		return nil
+	})
 
 	ctx := c.Request().Context()
 	err := redisConn.FlushAll(ctx).Err()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to initialize redis: "+err.Error())
-	}
-
-	// "../img/icon" 以下のファイルを全て削除
-	if err := exec.Command("rm", "-rf", "../img/icon/*").Run(); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to remove icon files: "+err.Error())
 	}
 
 	c.Request().Header.Add("Content-Type", "application/json;charset=utf-8")
@@ -166,11 +175,26 @@ func initializeHandler(c echo.Context) error {
 	})
 }
 
+func initializeSlaveHandler(c echo.Context) error {
+
+	themeCache.m = make(map[int64]ThemeModel)
+	livestreamTagsCache = sync.Map{}
+	userCache = sync.Map{}
+	userFillCache = sync.Map{}
+
+	// "../img/icon" 以下のファイルを全て削除
+	if err := exec.Command("rm", "-rf", "../img/icon/*").Run(); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to remove icon files: "+err.Error())
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
 func main() {
 	e := echo.New()
-	e.Debug = false
-	e.Logger.SetLevel(echolog.INFO)
-	e.Use(middleware.Logger())
+	//e.Debug = false
+	//e.Logger.SetLevel(echolog.INFO)
+	//e.Use(middleware.Logger())
 	cookieStore := sessions.NewCookieStore(secret)
 	cookieStore.Options.Domain = "*.u.isucon.local"
 	e.Use(session.Middleware(cookieStore))
@@ -180,6 +204,7 @@ func main() {
 
 	// 初期化
 	e.POST("/api/initialize", initializeHandler)
+	e.POST("/api/initialize/slave", initializeSlaveHandler)
 
 	// top
 	e.GET("/api/tag", getTagHandler)
