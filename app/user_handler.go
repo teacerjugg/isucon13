@@ -250,6 +250,8 @@ func getMeHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to commit: "+err.Error())
 	}
 
+	c.Logger().Info("getMeHandler: user=%v", user)
+
 	return c.JSON(http.StatusOK, user)
 }
 
