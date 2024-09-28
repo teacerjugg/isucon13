@@ -21,8 +21,6 @@ import (
 	"github.com/gorilla/sessions"
 	echoInt "github.com/kaz/pprotein/integration/echov4"
 	"github.com/labstack/echo-contrib/session"
-
-	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -33,7 +31,6 @@ const (
 var (
 	powerDNSSubdomainAddress string
 	dbConn                   *sqlx.DB
-	redisConn                *redis.Client
 	secret                   = []byte("isucon13_session_cookiestore_defaultsecret")
 )
 
@@ -110,25 +107,6 @@ func connectDB(logger echo.Logger) (*sqlx.DB, error) {
 	return db, nil
 }
 
-func connectRedis(logger echo.Logger) (*redis.Client, error) {
-	const (
-		redisAddrEnvKey = "ISUCON13_REDIS_DIALCONFIG_ADDRESS"
-	)
-
-	var redisAddr string
-	if v, ok := os.LookupEnv(redisAddrEnvKey); ok {
-		redisAddr = v
-	}
-
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     redisAddr,
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-
-	return rdb, nil
-}
-
 func initializeHandler(c echo.Context) error {
 	if out, err := exec.Command("../sql/init.sh").CombinedOutput(); err != nil {
 		c.Logger().Warnf("init.sh failed with err=%s", string(out))
@@ -161,12 +139,6 @@ func initializeHandler(c echo.Context) error {
 		}
 		return nil
 	})
-
-	ctx := c.Request().Context()
-	err := redisConn.FlushAll(ctx).Err()
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to initialize redis: "+err.Error())
-	}
 
 	c.Request().Header.Add("Content-Type", "application/json;charset=utf-8")
 	return c.JSON(http.StatusOK, InitializeResponse{
@@ -267,15 +239,6 @@ func main() {
 	}
 	defer conn.Close()
 	dbConn = conn
-
-	// Redis接続
-	rdbConn, err := connectRedis(e.Logger)
-	if err != nil {
-		e.Logger.Errorf("failed to connect db: %v", err)
-		os.Exit(1)
-	}
-	defer rdbConn.Close()
-	redisConn = rdbConn
 
 	subdomainAddr, ok := os.LookupEnv(powerDNSSubdomainAddressEnvKey)
 	if !ok {

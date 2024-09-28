@@ -529,17 +529,12 @@ func fillUserResponse(ctx context.Context, tx *sqlx.Tx, userModel UserModel) (Us
 		return User{}, err
 	}
 
-	iconHash, err := redisConn.Get(ctx, getIconHashKey(userModel.ID)).Result()
-	if err != nil {
-		fmt.Printf("Failed to get iconHash: %v\n", err)
-
-		// var iconHash string
-		if err := tx.GetContext(ctx, &iconHash, "SELECT icon_hash FROM icons WHERE user_id = ?", userModel.ID); err != nil {
-			if !errors.Is(err, sql.ErrNoRows) {
-				return User{}, err
-			}
-			iconHash = fallbackHash
+	var iconHash string
+	if err := tx.GetContext(ctx, &iconHash, "SELECT icon_hash FROM icons WHERE user_id = ?", userModel.ID); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return User{}, err
 		}
+		iconHash = fallbackHash
 	}
 
 	user = User{
