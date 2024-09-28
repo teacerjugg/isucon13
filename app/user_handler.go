@@ -112,6 +112,9 @@ func getIconHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get user ID: "+err.Error())
 	}
 
+	header := c.Response().Header()
+	header.Set(echo.HeaderContentType, "image/jpg")
+
 	var iconHash struct {
 		Hash string `db:"icon_hash"`
 	}
@@ -128,7 +131,9 @@ func getIconHandler(c echo.Context) error {
 		return c.NoContent(http.StatusNotModified) // 304
 	}
 
-	return c.File(getIconFilePath(iconHash.Hash))
+	header.Set("ETag", iconHash.Hash)
+	header.Set("X-Accel-Redirect", fmt.Sprintf("/home/isucon/webapp/img/icons/%s.jpg", iconHash.Hash)
+	return c.NoContent(http.StatusOK)
 }
 
 func getIconFilePath(iconHash string) string {
