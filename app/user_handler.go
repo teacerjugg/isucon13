@@ -132,7 +132,7 @@ func getIconHandler(c echo.Context) error {
 	}
 
 	header.Set("ETag", iconHash.Hash)
-	header.Set("X-Accel-Redirect", fmt.Sprintf("/home/isucon/webapp/img/icons/%s.jpg", iconHash.Hash))
+	header.Set("X-Accel-Redirect", fmt.Sprintf("/home/isucon/webapp/img/icon/%s.jpg", iconHash.Hash))
 	return c.NoContent(http.StatusOK)
 }
 
