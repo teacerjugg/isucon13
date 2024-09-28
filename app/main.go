@@ -16,11 +16,13 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/gorilla/sessions"
 	echoInt "github.com/kaz/pprotein/integration/echov4"
 	"github.com/labstack/echo-contrib/session"
+	echolog "github.com/labstack/gommon/log"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -191,9 +193,9 @@ func initializeSlaveHandler(c echo.Context) error {
 
 func main() {
 	e := echo.New()
-	//e.Debug = false
-	//e.Logger.SetLevel(echolog.INFO)
-	//e.Use(middleware.Logger())
+	e.Debug = false
+	e.Logger.SetLevel(echolog.INFO)
+	e.Use(middleware.Logger())
 	cookieStore := sessions.NewCookieStore(secret)
 	cookieStore.Options.Domain = "*.u.isucon.local"
 	e.Use(session.Middleware(cookieStore))
