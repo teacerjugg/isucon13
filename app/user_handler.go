@@ -190,6 +190,10 @@ func postIconHandler(c echo.Context) error {
 	userCache.Delete(userID)
 	userFillCache.Delete(userID)
 
+	if err := tx.Commit(); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to commit: "+err.Error())
+	}
+
 	return c.JSON(http.StatusCreated, &PostIconResponse{
 		ID: iconID,
 	})
