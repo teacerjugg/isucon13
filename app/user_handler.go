@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -10,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"strconv"
 	"sync"
 	"time"
 
@@ -128,11 +128,11 @@ func getIconHandler(c echo.Context) error {
 		return c.NoContent(http.StatusNotModified) // 304
 	}
 
-	return c.File(getIconFilePath(userID))
+	return c.File(getIconFilePath(iconHash.Hash))
 }
 
-func getIconFilePath(userID int64) string {
-	return "../img/icon/" + strconv.FormatInt(userID, 10) + ".jpg"
+func getIconFilePath(iconHash string) string {
+	return "../img/icon/" + iconHash + ".jpg"
 }
 
 func postIconHandler(c echo.Context) error {
@@ -148,8 +148,13 @@ func postIconHandler(c echo.Context) error {
 	// existence already checked
 	userID := sess.Values[defaultUserIDKey].(int64)
 
+	reqBuf := new(bytes.Buffer)
+	if _, err := reqBuf.ReadFrom(c.Request().Body); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to read request body: "+err.Error())
+	}
+
 	var req *PostIconRequest
-	if err := json.UnmarshalRead(c.Request().Body, &req); err != nil {
+	if err := json.Unmarshal(reqBuf.Bytes(), &req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "failed to decode the request body as json")
 	}
 
@@ -170,24 +175,16 @@ func postIconHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to insert new user icon: "+err.Error())
 	}
 
-	// icon をファイルに保存
-	iconFilePath := getIconFilePath(userID)
-	if err := os.WriteFile(iconFilePath, req.Image, 0666); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to save icon file: "+err.Error())
-	}
-
 	iconID, err := rs.LastInsertId()
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "failed to get last inserted icon id: "+err.Error())
 	}
 
-	if err := tx.Commit(); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to commit: "+err.Error())
-	}
-
-	err = redisConn.Set(ctx, getIconHashKey(userID), hashString, 0).Err()
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, "failed to redis set: "+err.Error())
+	// 別のインスタンスにリクエスト
+	if resp, err := http.Post("http://10.0.14.22:8080/api/internal/icon", "application/json; charset=UTF-8", reqBuf); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to post internal icon: "+err.Error())
+	} else {
+		defer resp.Body.Close()
 	}
 
 	userCache.Delete(userID)
@@ -196,6 +193,24 @@ func postIconHandler(c echo.Context) error {
 	return c.JSON(http.StatusCreated, &PostIconResponse{
 		ID: iconID,
 	})
+}
+
+func postInternalIconHandler(c echo.Context) error {
+	var req *PostIconRequest
+	if err := json.UnmarshalRead(c.Request().Body, &req); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to read request body: "+err.Error())
+	}
+
+	iconHash := sha256.Sum256(req.Image)
+	hashString := hex.EncodeToString(iconHash[:])
+
+	// icon をファイルに保存
+	iconFilePath := getIconFilePath(hashString)
+	if err := os.WriteFile(iconFilePath, req.Image, 0666); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "failed to save icon file: "+err.Error())
+	}
+
+	return c.NoContent(http.StatusOK)
 }
 
 func getMeHandler(c echo.Context) error {
